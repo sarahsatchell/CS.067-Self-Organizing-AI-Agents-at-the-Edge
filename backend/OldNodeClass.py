@@ -1,0 +1,705 @@
+"""
+NodeClass.py: Agent implementation for Fixed-Size Swarm with Frontier-Based Exploration
+
+Each agent:
+1. Maintains a local_map of visited nodes and edges
+2. Identifies frontiers (unexplored but reachable nodes)
+3. Communicates via UDP to share map updates
+4. Uses a tick() state machine to scan, broadcast, listen, decide, and move
+5. Collaboratively explores the maze by claiming unique frontiers
+"""
+
+import socket
+import asyncio
+import json
+from collections import deque
+from typing import Set, Tuple, List, Dict, Optional
+import math
+
+
+class OldNode:
+    """
+    Agent node for swarm-based maze exploration.
+    
+    Data structures:
+    - local_map: Dict mapping (x,y) to set of neighboring coordinates
+    - frontiers: List of unexplored (x,y) coordinates adjacent to known nodes
+    - target_frontier: Current (x,y) frontier this agent is moving toward
+    - claimed_frontiers: Set of frontiers claimed by any agent
+    """
+    
+    def __init__(self, port: int, name: str, agent_id: int, maze_width: int = 0, maze_height: int = 0):
+        """
+        Initialize a swarm agent.
+        
+        Args:
+            port: UDP port for this agent
+            name: Human-readable name
+            agent_id: Unique numeric identifier
+            maze_width: Width of the maze (for boundary detection)
+            maze_height: Height of the maze (for boundary detection)
+        """
+        self.port = port
+        self.name = name
+        self.agent_id = agent_id
+        self.maze_width = maze_width
+        self.maze_height = maze_height
+        
+        # Core data structures
+        self.local_map: Dict[Tuple[int, int], Set[Tuple[int, int]]] = {}
+        self.frontiers: List[Tuple[int, int]] = []
+        self.target_frontier: Optional[Tuple[int, int]] = None
+        # Map frontier coord -> agent_id that claimed it (lowest ID wins)
+        self.claimed_frontiers: Dict[Tuple[int, int], int] = {}
+        
+        # Current position
+        self.current_position: Optional[Tuple[int, int]] = None
+        
+        # UDP socket
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("127.0.0.1", port))
+        print(f"{self.name} (Agent_{self.agent_id}) listening on port {port}")
+        
+        # Message handler callback
+        self.on_message = lambda msg, addr: None
+        
+        # For tracking other agents' ports (populated externally)
+        self.peer_ports: List[int] = []
+        
+        # Stuck detection
+        self.stuck_counter: int = 0
+        
+        # Wall hit tracking (to avoid spamming multiple hits at same location)
+        self.recent_wall_hits: Set[Tuple[int, int]] = set()
+
+        # the list to save agent's path and number
+        self.agent_path = []
+        # the number of steps taken by each agent
+        self.num_steps = 0
+        
+        # Stats tracking for maze completion display
+        self.total_wall_hits: int = 0  # cumulative wall/boundary hits
+        self.tiles_discovered_directly: int = 0  # tiles discovered by this agent via scan
+        self.ticks_elapsed: int = 0  # number of tick() calls
+        self.maps_merged: int = 0  # number of merge packets processed
+        self.maze_complete: bool = False  # flag for when exploration finishes
+        self.reached_goal: bool = False  # whether this agent reached the goal
+        self.goal_tick: Optional[int] = None  # tick number when goal was reached
+    
+    def send_activity_log(self, log_type: str, extra_data: Optional[Dict] = None):
+        """
+        Send activity log to frontend via the main.py bridge
+        
+        Args:
+            log_type: 'agent_registered', 'agent_move', 'info'
+            extra_data: Additional fields for the log
+        """
+        payload = {
+            "type": log_type,
+            "agent_name": self.name,
+            "agent_id": self.agent_id,
+        }
+        
+        if extra_data:
+            payload.update(extra_data)
+
+        try:
+            self.send_json("127.0.0.1", 9000, payload)
+        except Exception as e:
+            pass
+
+    def report_wall_hit(self, wall_position: Tuple[int, int]):
+        """
+        Report when an agent encounters a wall/blocked tile.
+        Differentiates between boundary walls and internal blocks.
+        
+        Args:
+            wall_position: The (x,y) position of the wall/blocked tile
+        """
+        # Coordinates are stored/used as (row, col) across tick/scan logic.
+        # Compare row against maze_height and col against maze_width.
+        row, col = wall_position
+        is_boundary = (
+            row == 0
+            or row == self.maze_height - 1
+            or col == 0
+            or col == self.maze_width - 1
+        )
+        obstacle_type = "boundary" if is_boundary else "wall"
+        
+        self.send_activity_log("agent_wall_hit", {
+            "position": list(self.current_position) if self.current_position else [0, 0],
+            "wall_position": list(wall_position),
+            "obstacle_type": obstacle_type
+        })
+
+    def set_initial_position(self, position: Tuple[int, int]):
+        """Set the agent's starting position and initialize local_map."""
+        self.current_position = position
+        self.local_map[position] = set()
+        #get the initial position of the agent
+        self.agent_path = [position]
+        self.tiles_discovered_directly = 1  # starting position counts as discovered
+        print(f"{self.name} starting at {position}")
+
+    def _manhattan_distance(self, pos1: Tuple[int, int], pos2: Tuple[int, int]) -> int:
+        """Calculate Manhattan distance between two positions."""
+        return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
+    
+    def _get_bfs_distance(self, pos1: Tuple[int, int], pos2: Tuple[int, int]) -> int:
+        """
+        Calculate true path distance using BFS on the local_map.
+        
+        This solves the 'Commute Problem': frontiers that look close in Manhattan distance
+        but require walking around walls are now properly evaluated at their true cost.
+        
+        Args:
+            pos1: Starting position
+            pos2: Target position (usually a frontier)
+        
+        Returns:
+            Number of steps to reach pos2 from pos1 through known map.
+            Returns 999999 if pos2 is unreachable.
+        """
+        if pos1 == pos2:
+            return 0
+        
+        # BFS queue: stores (current_pos, distance)
+        queue = deque([(pos1, 0)])
+        visited = {pos1}
+        
+        # Directions: North, South, East, West
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        
+        while queue:
+            current, distance = queue.popleft()
+            
+            # Check if we reached the target
+            if current == pos2:
+                return distance
+            
+            cx, cy = current
+            
+            # Explore 4-way grid neighbors
+            for dx, dy in directions:
+                neighbor = (cx + dx, cy + dy)
+                
+                if neighbor not in visited:
+                    # Valid path rule: neighbor must be in local_map OR be the exact target
+                    if neighbor in self.local_map or neighbor == pos2:
+                        visited.add(neighbor)
+                        queue.append((neighbor, distance + 1))
+        
+        # No path found to target - unreachable
+        return 999999
+    
+    
+    def _select_best_frontier(self) -> Optional[Tuple[int, int]]:
+        """
+        Select a frontier to explore using jiggle logic with BFS distance.
+        
+        Strategy:
+        1. Find top 3 nearest unclaimed frontiers (using true path distance via BFS)
+        2. Randomly pick one (prevents deterministic clumping)
+        3. If no unclaimed, pick a random claimed frontier (helps break deadlock)
+        4. If no frontiers at all, return None
+        
+        Returns:
+            (x,y) of a selected frontier, or None if no frontiers exist
+        """
+        import random
+        
+        if not self.frontiers:
+            return None
+        
+        # Filter to unclaimed frontiers
+        unclaimed = [f for f in self.frontiers if f not in self.claimed_frontiers]
+        
+        if unclaimed:
+            # Find top 3 nearest unclaimed frontiers using TRUE path distance (BFS)
+            sorted_unclaimed = sorted(unclaimed, key=lambda f: self._get_bfs_distance(self.current_position, f))
+            top_3 = sorted_unclaimed[:min(3, len(sorted_unclaimed))]
+            # Randomly pick one of the top 3 (jiggle logic prevents deterministic clumping)
+            return random.choice(top_3)
+        else:
+            # No unclaimed frontiers - pick random claimed one to help break deadlock
+            if self.frontiers:
+                return random.choice(self.frontiers)
+            return None
+    
+    def _find_next_step_bfs(self, target: Tuple[int, int]) -> Optional[Tuple[int, int]]:
+        """
+        Use BFS on local_map to find the next immediate step toward target.
+        """
+        if target == self.current_position:
+            return None
+        
+        # BFS queue: stores (current_pos, path_to_reach_it)
+        queue = deque([(self.current_position, [self.current_position])])
+        visited = {self.current_position}
+        
+        # Directions: North, South, West, East
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        
+        while queue:
+            current, path = queue.popleft()
+            
+            # Check if we reached the target
+            if current == target:
+                # Return the first step in the path (index 1)
+                if len(path) > 1:
+                    return path[1]
+                return None
+            
+            cx, cy = current
+            
+            # Explore 4-way grid neighbors
+            for dx, dy in directions:
+                neighbor = (cx + dx, cy + dy)
+                
+                if neighbor not in visited:
+                    # VALID PATH RULE:
+                    # We can walk on it IF it is a fully explored node (in local_map)
+                    # OR if it is the exact target frontier we are trying to step onto.
+                    if neighbor in self.local_map or neighbor == target:
+                        visited.add(neighbor)
+                        queue.append((neighbor, path + [neighbor]))
+        
+        # No path found to target
+        return None
+    
+    def _move_toward_target(self) -> Tuple[int, int]:
+        """
+        Calculate the next step toward target_frontier using BFS on local_map.
+        
+        Algorithm:
+        1. Use BFS to find shortest path from current position to target
+        2. Only traverse nodes that exist in self.local_map (discovered nodes)
+        3. Return the immediate next step (not the whole path)
+        4. If no path exists, drop the target and increment stuck_counter
+        
+        Returns:
+            New (x,y) position to move to
+        """
+        import random
+        
+        if not self.target_frontier or not self.current_position:
+            return self.current_position
+        
+        # Ensure current position is in local_map
+        if self.current_position not in self.local_map:
+            self.local_map[self.current_position] = set()
+        
+        # Try to find next step using BFS
+        next_step = self._find_next_step_bfs(self.target_frontier)
+        
+        if next_step is None:
+            # No path to target found - target is walled off or unreachable
+            print(f"{self.name} cannot reach target {self.target_frontier}. Dropping target.")
+            self.target_frontier = None
+            self.stuck_counter += 1
+            
+            # If stuck too long, pick a random frontier
+            if self.stuck_counter > 5 and self.frontiers:
+                self.target_frontier = random.choice(self.frontiers)
+                self.stuck_counter = 0
+            
+            return self.current_position
+        
+        # Successfully found a next step
+        self.stuck_counter = 0
+        return next_step
+    
+    
+    def _is_wall(self, cell_value: int) -> bool:
+        """Check if a cell value represents a wall (1 = wall)."""
+        return cell_value == 1
+    
+    def _scan_neighbors(self, local_grid_view: List[List[int]]) -> List[Tuple[int, int]]:
+        """
+        Scan 4-neighbors in the local grid view and identify frontiers.
+        Also detects and reports wall hits.
+        """
+        if not self.current_position:
+            return []
+        
+        new_frontiers = []
+        cx, cy = self.current_position
+        rows, cols = len(local_grid_view), len(local_grid_view[0])
+        
+        # Ensure current position is registered
+        if self.current_position not in self.local_map:
+            self.local_map[self.current_position] = set()
+        
+        # Check 4 neighbors
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nx, ny = cx + dx, cy + dy
+            
+            # Bounds check
+            if not (0 <= nx < rows and 0 <= ny < cols):
+                continue
+            
+            cell = local_grid_view[nx][ny]
+            
+            # Check if this is a wall
+            if self._is_wall(cell):
+                # Report wall hit if we haven't recently reported this wall
+                if (nx, ny) not in self.recent_wall_hits:
+                    self.report_wall_hit((nx, ny))
+                    self.recent_wall_hits.add((nx, ny))
+                    self.total_wall_hits += 1  # Track cumulative wall hits
+                    # Clear old hits after a few ticks to allow re-reporting
+                    if len(self.recent_wall_hits) > 10:
+                        self.recent_wall_hits.clear()
+                continue
+            
+            # Check if this open space is a new frontier
+            if (nx, ny) not in self.local_map:
+                if (nx, ny) not in self.frontiers:
+                    self.frontiers.append((nx, ny))
+                    new_frontiers.append((nx, ny))
+        
+        return new_frontiers
+
+    def _broadcast_map_update(self, new_nodes: List[Tuple[int, int]], new_frontiers: List[Tuple[int, int]]):
+        """
+        Broadcast map update via UDP to all peer agents.
+        
+        Args:
+            new_nodes: List of newly discovered nodes
+            new_frontiers: List of newly discovered frontiers
+        """
+        if not new_nodes and not new_frontiers:
+            return
+        
+        payload = {
+            "type": "MERGE",
+            "sender_id": self.agent_id,
+            "sender_name": self.name,
+            "nodes": new_nodes,
+            "frontiers": new_frontiers
+        }
+        
+        for peer_port in self.peer_ports:
+            if peer_port != self.port:  # Don't send to self
+                try:
+                    self.send_json("127.0.0.1", peer_port, payload)
+                except Exception as e:
+                    print(f"{self.name} failed to send to port {peer_port}: {e}")
+    
+    def _broadcast_frontier_claim(self, frontier: Tuple[int, int]):
+        """
+        Broadcast frontier claim via UDP to all peer agents.
+        
+        Args:
+            frontier: The (x,y) frontier being claimed
+        """
+        payload = {
+            "type": "CLAIM",
+            "sender_id": self.agent_id,
+            "sender_name": self.name,
+            "target_frontier": frontier
+        }
+        
+        for peer_port in self.peer_ports:
+            if peer_port != self.port:  # Don't send to self
+                try:
+                    self.send_json("127.0.0.1", peer_port, payload)
+                except Exception as e:
+                    print(f"{self.name} failed to send CLAIM to port {peer_port}: {e}")
+    
+    def _process_merge_packet(self, payload: Dict):
+        """
+        Process incoming MERGE packet and integrate remote agent's map.
+        
+        Args:
+            payload: Dictionary with 'nodes' and 'frontiers'
+        """
+        sender = payload.get("sender_name", "Unknown")
+        
+        # Merge nodes into local_map
+        for node in payload.get("nodes", []):
+            node_tuple = tuple(node) if isinstance(node, list) else node
+            if node_tuple not in self.local_map:
+                self.local_map[node_tuple] = set()
+        
+        # Merge frontiers
+        for frontier in payload.get("frontiers", []):
+            frontier_tuple = tuple(frontier) if isinstance(frontier, list) else frontier
+            if frontier_tuple not in self.frontiers:
+                self.frontiers.append(frontier_tuple)
+        
+        self.maps_merged += 1  # Track merge packet count
+        print(f"{self.name} merged data from {sender}: {len(payload.get('nodes', []))} nodes, {len(payload.get('frontiers', []))} frontiers")
+    
+    def _process_claim_packet(self, payload: Dict):
+        """
+        Process incoming CLAIM packet and update claimed frontiers.
+        Uses agent ID hierarchy: lowest ID wins claim ownership.
+        
+        Args:
+            payload: Dictionary with 'target_frontier' and 'sender_id'
+        """
+        sender = payload.get("sender_name", "Unknown")
+        sender_id = payload.get("sender_id", 999)
+        frontier = payload.get("target_frontier")
+        
+        if frontier:
+            frontier_tuple = tuple(frontier) if isinstance(frontier, list) else frontier
+            
+            # Only update if frontier not claimed, or if new sender has lower ID (wins)
+            if frontier_tuple not in self.claimed_frontiers:
+                self.claimed_frontiers[frontier_tuple] = sender_id
+                print(f"{self.name} recorded frontier claim from {sender} (ID {sender_id}): {frontier_tuple}")
+            elif sender_id < self.claimed_frontiers[frontier_tuple]:
+                old_owner = self.claimed_frontiers[frontier_tuple]
+                self.claimed_frontiers[frontier_tuple] = sender_id
+                print(f"{self.name} updated frontier owner {frontier_tuple} from Agent_{old_owner} to {sender} (ID {sender_id})")
+    
+    def tick(self, local_grid_view: List[List[int]]):
+        """
+        State machine tick for the agent.
+        
+        Sequence:
+        1. CLEANUP: Remove explored positions from frontier list
+        2. SCAN: Look at neighbors and identify frontiers
+        3. BROADCAST: Send new discoveries to peers
+        4. LISTEN: Process incoming UDP messages (done asynchronously)
+        5. DECIDE: Choose next frontier if needed
+        6. MOVE: Take one step toward target frontier
+        
+        Args:
+            local_grid_view: 2D array of the agent's surroundings (0=open, 1=wall)
+        """
+        self.ticks_elapsed += 1  # Track tick count
+        
+        # CLEANUP: Ensure current position is in local_map
+        if self.current_position not in self.local_map:
+            self.local_map[self.current_position] = set()
+        
+        # CLEANUP: Remove explored positions from frontier list (zombie frontier fix)
+        self.frontiers = [f for f in self.frontiers if f not in self.local_map]
+        
+        # Check if target_frontier has been reached
+        if self.target_frontier == self.current_position:
+            self.target_frontier = None
+        
+        # ANTI-LIVELOCK: Check claim hierarchy for current target
+        if self.target_frontier and self.target_frontier in self.claimed_frontiers:
+            owner_id = self.claimed_frontiers[self.target_frontier]
+            if owner_id < self.agent_id:
+                # Lower ID agent owns this, must yield it
+                print(f"{self.name} yielding frontier {self.target_frontier} to Agent_{owner_id} (lower ID)")
+                self.target_frontier = None
+        
+        # SCAN: Identify new frontiers
+        new_frontiers = self._scan_neighbors(local_grid_view)
+        new_nodes = list(self.local_map.keys())  # All discovered nodes
+        
+        # BROADCAST: Send updates
+        self._broadcast_map_update(new_nodes, new_frontiers)
+        
+        # LISTEN: Process any pending messages
+        # (This would be called from async handler in real implementation)
+        
+        # DECIDE: Select frontier if needed
+        if self.target_frontier is None:
+            selected = self._select_best_frontier()
+            if selected:
+                # Claim locally FIRST to prevent race condition
+                self.claimed_frontiers[selected] = self.agent_id
+                self.target_frontier = selected
+                self._broadcast_frontier_claim(selected)
+                print(f"{self.name} selected frontier {selected}")
+                self.send_activity_log("agent_frontier", {"frontier": list(selected)})
+        
+        # MOVE: Take one step toward target
+        if self.target_frontier:
+            new_pos = self._move_toward_target()
+            if new_pos != self.current_position:
+                prev_pos = self.current_position
+                self.current_position = new_pos
+
+                #record the path and count steps
+                self.num_steps += 1
+                self.agent_path.append(new_pos)
+
+                # Ensure newly visited position is in local_map
+                if self.current_position not in self.local_map:
+                    self.local_map[self.current_position] = set()
+                    self.tiles_discovered_directly += 1  # Count cells added to map by own walking
+
+                # Notify frontend of movement (triggers teal flash on new tiles)
+                self.send_activity_log("agent_move", {
+                    "from_position": list(prev_pos),
+                    "to_position": list(new_pos)
+                })
+                print(f"{self.name} moved to {new_pos}")
+            else:
+                # Reached frontier or stuck
+                if new_pos == self.target_frontier:
+                    print(f"{self.name} reached target frontier {self.target_frontier}")
+                    # Add reached frontier to local_map
+                    if self.target_frontier not in self.local_map:
+                        self.local_map[self.target_frontier] = set()
+                    self.target_frontier = None
+    
+    def process_message(self, msg: str):
+        """
+        Process a received message.
+        
+        Args:
+            msg: JSON string containing packet
+        """
+        try:
+            payload = json.loads(msg)
+            msg_type = payload.get("type")
+            
+            # These types are for the frontend bridge only — ignore silently
+            BRIDGE_ONLY_TYPES = {"agent_registered", "agent_move", "info", "agent_frontier"}
+            if msg_type in BRIDGE_ONLY_TYPES:
+                return
+        
+            if msg_type == "MERGE":
+                self._process_merge_packet(payload)
+            elif msg_type == "CLAIM":
+                self._process_claim_packet(payload)
+            else:
+                print(f"{self.name} received unknown message type: {msg_type}")
+        
+        except json.JSONDecodeError as e:
+            print(f"{self.name} failed to parse message: {e}")
+    
+    # UDP communication methods
+    
+    async def web_listen(self):
+        """Asynchronously listen for incoming UDP messages."""
+        loop = asyncio.get_event_loop()
+        while True:
+            try:
+                data, addr = await loop.run_in_executor(None, self.sock.recvfrom, 65535)
+                msg = data.decode('utf-8')
+                print(f"[{self.name}] Received from {addr}: {msg}")
+                self.process_message(msg)
+                self.on_message(msg, addr)
+            except Exception as e:
+                print(f"{self.name} error in web_listen: {e}")
+    
+    def send_json(self, ip: str, port: int, payload: dict):
+        """
+        Send a JSON payload via UDP.
+        
+        Args:
+            ip: Target IP address
+            port: Target port
+            payload: Dictionary to send as JSON
+        """
+        try:
+            message = json.dumps(payload)
+            self.sock.sendto(message.encode("utf-8"), (ip, port))
+        except Exception as e:
+            print(f"{self.name} failed to send JSON: {e}")
+    
+    def save_message(self, msg: str, filename: str = "received_messages.txt"):
+        """Save a message to file for debugging."""
+        try:
+            with open(filename, "a") as f:
+                f.write(f"{self.name}: {msg}\n")
+        except Exception as e:
+            print(f"{self.name} failed to save message: {e}")
+
+    def _calculate_optimal_path_distance(self, goal: Tuple[int, int], maze: List[List[int]]) -> int:
+        """
+        Calculate the true shortest path from start to goal using BFS on the full maze.
+        This is identical for all agents since the maze, start, and goal are shared.
+        
+        Args:
+            goal: The maze end position (row, col).
+            maze: The full 2D maze grid (0=open, 1=wall).
+        
+        Returns:
+            Minimum steps from start to goal through open tiles.
+            Returns 0 if no starting position is known.
+        """
+        if not self.agent_path:
+            return 0
+        
+        start_pos = self.agent_path[0]
+        rows = len(maze)
+        cols = len(maze[0]) if rows > 0 else 0
+        
+        # BFS on the full maze grid
+        queue = deque([(start_pos, 0)])
+        visited = {start_pos}
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        
+        while queue:
+            current, distance = queue.popleft()
+            
+            if current == goal:
+                return distance
+            
+            cx, cy = current
+            for dx, dy in directions:
+                nx, ny = cx + dx, cy + dy
+                if (nx, ny) not in visited and 0 <= nx < rows and 0 <= ny < cols and maze[nx][ny] == 0:
+                    visited.add((nx, ny))
+                    queue.append(((nx, ny), distance + 1))
+        
+        # No path exists in maze (shouldn't happen in valid maze)
+        return 0
+
+
+    def get_agent_stats(self, goal: Tuple[int, int], maze: List[List[int]], all_explored: set) -> Dict:
+        """
+        Gather all agent statistics for display at maze completion.
+        
+        Args:
+            goal: The maze end position (row, col) — same for all agents.
+            maze: The full 2D maze grid used to compute remaining frontiers.
+            all_explored: Union of all agents' explored tiles.
+        
+        Returns:
+            Dictionary containing all relevant stats for this agent.
+        """
+        total_explored = len(self.local_map)
+        # Count truly unexplored open cells using the combined explored set across all agents
+        remaining_frontiers = sum(
+            1 for r in range(len(maze)) for c in range(len(maze[0]))
+            if maze[r][c] == 0 and (r, c) not in all_explored
+        )
+        self_claimed_frontiers = len([f for f in self.claimed_frontiers if self.claimed_frontiers[f] == self.agent_id])
+
+        # Unique positions this agent physically walked through (differs per agent)
+        unique_tiles_walked = len(set(self.agent_path))
+        # Steps spent revisiting already-known tiles rather than exploring new ones
+        redundant_steps = max(0, self.num_steps - (unique_tiles_walked - 1))
+        # New tiles discovered per step taken (higher = more efficient explorer)
+        exploration_rate = round(self.tiles_discovered_directly / self.num_steps, 3) if self.num_steps > 0 else 0
+        
+        return {
+            "agent_name": self.name,
+            "agent_id": self.agent_id,
+            "tiles_explored": total_explored,
+            "tiles_discovered_directly": self.tiles_discovered_directly,
+            "tiles_learned_from_peers": total_explored - self.tiles_discovered_directly,
+            "steps_taken": self.num_steps,
+            "unique_tiles_walked": unique_tiles_walked,
+            "redundant_steps": redundant_steps,
+            "efficiency_percentage": round(((unique_tiles_walked - 1) / self.num_steps * 100) if self.num_steps > 0 else 0, 1),
+            "exploration_rate": exploration_rate,
+            "remaining_frontiers": remaining_frontiers,
+            "frontiers_claimed_by_agent": self_claimed_frontiers,
+            "walls_boundaries_hit": self.total_wall_hits,
+            "maps_merged_from_peers": self.maps_merged,
+            "ticks_elapsed": self.ticks_elapsed,
+            "reached_goal": self.reached_goal,
+            "goal_tick": self.goal_tick,
+        }
+
+    #getters to be used for another class/file calls
+    def get_agent_path(self):
+        return self.agent_path
+
+    def get_agent_steps(self):
+        return self.num_steps
