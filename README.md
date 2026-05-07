@@ -1,5 +1,5 @@
 # CS.067-Self-Organizing-AI-Agents-at-the-Edge
-Check it out at https://cs-067-self-organizing-ai-agents-at.vercel.app/ 
+Check it out at https://cs067.vercel.app/
 
 A real-time multi-agent simulation platform for exploring decentralized coordination and emergent behavior.
 Project Partner: Kyle Prouty, HP.

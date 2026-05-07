@@ -22,7 +22,7 @@ Node.js (v18+ recommended)
 
 ### Setup Instructions
 
-1. Clone the repository from GitHub: ​​[https://github.com/bradfiep/CS.067-Self-Organizing-AI-Agents-at-the-Edge](https://github.com/bradfiep/CS.067-Self-Organizing-AI-Agents-at-the-Edge)   
+1. Clone the repository from GitHub: ​​[https://github.com/sarahsatchell/CS.067-Self-Organizing-AI-Agents-at-the-Edge](https://github.com/sarahsatchell/CS.067-Self-Organizing-AI-Agents-at-the-Edge)   
 2. Set up the frontend:
 
    cd frontend
