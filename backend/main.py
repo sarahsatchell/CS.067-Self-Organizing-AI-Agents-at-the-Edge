@@ -93,7 +93,7 @@ async def run_live_simulation(maze, start, end, ws):
             "type": "agent_registered",
             "agent_name": agent.name,
             "agent_id": agent.agent_id,
-            "position": list(agent.current_position),
+            "position": list(agent.aco_current_position) if agent.aco_current_position else None,
             "status": "exploring"
         }))
 
@@ -107,29 +107,29 @@ async def run_live_simulation(maze, start, end, ws):
         for agent in agents:
             agent.tick(maze)
 
-            if agent.current_position == tuple(end):
+            if agent.aco_current_position == tuple(end):
                 goal_reached = True
-                if not agent.reached_goal:
-                    agent.reached_goal = True
-                    agent.goal_tick = tick
+                if not agent.aco_reached_goal:
+                    agent.aco_reached_goal = True
+                    agent.aco_goal_tick = tick
                 await ws.send_str(json.dumps({
                     "type": "agent_goal_reached",
                     "agent_name": agent.name,
                     "agent_id": agent.agent_id,
-                    "position": list(agent.current_position),
+                    "position": list(agent.aco_current_position),
                     "tick": tick
                 }))
 
             agent_data.append({
                 "id": agent.agent_id,
-                "position": agent.current_position,
-                "target_frontier": agent.target_frontier,
-                "cells_discovered": len(agent.local_map)
+                "position": agent.aco_current_position,
+                "target_frontier": agent.aco_target_frontier,
+                "cells_discovered": len(agent.aco_local_map)
             })
 
         explored = set()
         for agent in agents:
-            explored.update(agent.local_map.keys())
+            explored.update(agent.aco_local_map.keys())
         total_open = sum(1 for row in maze for cell in row if cell == 0)
         explored_pct = (len(explored) / total_open * 100) if total_open > 0 else 0
 
@@ -147,7 +147,7 @@ async def run_live_simulation(maze, start, end, ws):
     # Final summary
     explored = set()
     for agent in agents:
-        explored.update(agent.local_map.keys())
+        explored.update(agent.aco_local_map.keys())
 
     total_open = sum(1 for row in maze for cell in row if cell == 0)
     explored_pct = (len(explored) / total_open * 100) if total_open > 0 else 0
@@ -186,7 +186,7 @@ async def main():
 
     app = web.Application()
     app.router.add_get("/", health_check)
-    app.router.add_get("/ws", websocket_handler)
+    app.router.add_route("*", "/ws", websocket_handler)
 
     runner = web.AppRunner(app)
     await runner.setup()
