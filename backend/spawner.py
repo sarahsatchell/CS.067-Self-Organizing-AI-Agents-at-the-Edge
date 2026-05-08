@@ -6,8 +6,9 @@ then instantiates all agents at the starting position. No agents are spawned dur
 """
 
 from NodeClass import Node
+from OldNodeClass import OldNode
 import socket
-from typing import List, Tuple
+from typing import List, Tuple, Type, Union
 
 
 def calculate_optimal_agent_count(maze: List[List[int]]) -> int:
@@ -81,28 +82,36 @@ def find_available_port(start_port: int = 9000, max_attempts: int = 1000) -> int
     raise RuntimeError(f"No available ports found after {max_attempts} attempts")
 
 
-def spawn_agents(maze: List[List[int]], start_position: Tuple[int, int]) -> List[Node]:
+def spawn_agents(
+    maze: List[List[int]],
+    start_position: Tuple[int, int],
+    node_class: Union[Type[Node], Type[OldNode]] = Node,
+) -> List[Union[Node, OldNode]]:
     """
     Spawn a fixed-size swarm of agents at the maze start position.
     
     This function:
     1. Calculates optimal_agent_count based on maze size and wall density
-    2. Instantiates all agents at the start_position
+    2. Instantiates all agents at the start_position using the provided node_class
     3. Configures inter-agent communication ports
     
     NO AGENTS ARE SPAWNED DURING RUNTIME - all agents are created here.
     
     Args:
-        maze: 2D array representing the maze (0=open, 1=wall)
-        start_position: (x, y) tuple for agent starting position
+        maze:           2D array representing the maze (0=open, 1=wall)
+        start_position: (row, col) tuple for agent starting position
+        node_class:     Agent class to instantiate — Node (ACO) or OldNode (frontier).
+                        Defaults to Node.
     
     Returns:
-        List of instantiated Node agents
+        List of instantiated agents of the requested type
     """
-    # Calculate optimal agent count
     optimal_count = calculate_optimal_agent_count(maze)
+    algorithm_label = "ACO" if node_class is Node else "Frontier (Old)"
+    
     print(f"\n=== SWARM SPAWNING ===")
-    print(f"Maze size: {len(maze)} x {len(maze[0])} ({len(maze) * len(maze[0])} cells)")
+    print(f"Algorithm:  {algorithm_label}")
+    print(f"Maze size:  {len(maze)} x {len(maze[0])} ({len(maze) * len(maze[0])} cells)")
     print(f"Calculated optimal agent count: {optimal_count}")
     
     maze_height = len(maze)
@@ -111,12 +120,16 @@ def spawn_agents(maze: List[List[int]], start_position: Tuple[int, int]) -> List
     agents = []
     base_port = 9000
     
-    # Instantiate agents
     for i in range(optimal_count):
         try:
             port = find_available_port(base_port + i * 10)
-            new_agent = Node(port=port, name=f"Agent_{i}", agent_id=i, 
-                           maze_width=maze_width, maze_height=maze_height)
+            new_agent = node_class(
+                port=port,
+                name=f"Agent_{i}",
+                agent_id=i,
+                maze_width=maze_width,
+                maze_height=maze_height,
+            )
             new_agent.set_initial_position(start_position)
             agents.append(new_agent)
         except RuntimeError as e:
@@ -132,5 +145,3 @@ def spawn_agents(maze: List[List[int]], start_position: Tuple[int, int]) -> List
     
     print(f"Configured peer communication for all agents")
     return agents
-
-
