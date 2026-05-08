@@ -33,6 +33,7 @@ interface AgentActivityProps {
   maze: number[][] | null;
   startPt: [number, number];
   endPt: [number, number];
+  algorithm: 'old' | 'aco';
 }
 
 interface BackendMessage {
@@ -62,6 +63,11 @@ interface TickAgent {
   target_frontier?: [number, number];
   cells_discovered?: number;
 }
+
+const ALGORITHM_LABELS: Record<'old' | 'aco', string> = {
+  old: 'Swarm',
+  aco: 'ACO Swarm',
+};
 
 // Agent list item component
 function AgentListItem({ agent }: { agent: Agent }) {
@@ -119,7 +125,8 @@ export default function AgentActivity({
   messageQueue,
   maze,
   startPt,
-  endPt
+  endPt,
+  algorithm
 }: AgentActivityProps) {
   // Initialize agents with placeholder data
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -414,8 +421,21 @@ export default function AgentActivity({
   return (
     <div className="activity-section">
       <div className="activity-section-inner">
-        <h1 className="activity-title">Agent Activity</h1>
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', justifyContent: 'center', margin: '1rem 0' }}>
+          <h1 className="activity-title" style={{ margin: 0 }}>Agent Activity</h1>
+          <span style={{
+            background: '#333333',
+            color: '#d5d5d5',
+            padding: '0.25rem 0.75rem',
+            borderRadius: '0.5rem',
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            border: '1px solid #868686',
+          }}>
+            <span style={{ color: '#888888' }}>Algorithm: </span>
+              {ALGORITHM_LABELS[algorithm]}
+          </span>
+        </div>
         <div className="activity-content">
           <div className="activity-sidebar">
             {/* Agent List */}
@@ -578,6 +598,7 @@ export default function AgentActivity({
         isOpen={showStats}
         agents={agentStats}
         onClose={() => setShowStats(false)}
+        algorithm={algorithm}
       />
     </div>
   );
