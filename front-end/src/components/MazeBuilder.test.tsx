@@ -400,7 +400,8 @@ describe('MazeBuilder Component', () => {
       expect(mockOnSendMaze).toHaveBeenCalledWith(
         [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
         [0, 0],
-        [2, 2]
+        [2, 2],
+        "aco",
       );
     });
 

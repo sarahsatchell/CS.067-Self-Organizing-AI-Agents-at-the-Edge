@@ -7,7 +7,13 @@ interface StatsPopupProps {
   isOpen: boolean;
   agents: AgentStats[];
   onClose: () => void;
+  algorithm: 'old' | 'aco';
 }
+
+const ALGORITHM_LABELS: Record<'old' | 'aco', string> = {
+  old: 'Swarm',
+  aco: 'ACO Swarm',
+};
 
 const AGENT_COLORS = ['#297AEB', '#F28B1E', '#f8d32b', '#9718ad', '#e74337', '#1AB74E'];
 
@@ -15,7 +21,7 @@ const getAgentColor = (agentId: number): string => {
   return AGENT_COLORS[agentId % AGENT_COLORS.length];
 };
 
-const StatsPopup: React.FC<StatsPopupProps> = ({ isOpen, agents, onClose }) => {
+const StatsPopup: React.FC<StatsPopupProps> = ({ isOpen, agents, onClose, algorithm}) => {
   const [closing, setClosing] = useState(false);
 
   // Reset closing state when popup reopens
@@ -62,7 +68,21 @@ const StatsPopup: React.FC<StatsPopupProps> = ({ isOpen, agents, onClose }) => {
     <div className={`stats-overlay${closing ? ' stats-overlay--closing' : ''}`}>
       <div className={`stats-modal${closing ? ' stats-modal--closing' : ''}`}>
         <div className="stats-header">
-          <h1>Maze Exploration Complete!</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', justifyContent: 'center' }}>
+            <h1 style={{ margin: 0 }}>Maze Exploration Complete!</h1>
+            <span style={{
+              background: '#333333',
+              color: '#d5d5d5',
+              padding: '0.25rem 0.75rem',
+              borderRadius: '0.5rem',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              border: '1px solid #868686',
+            }}>
+              <span style={{ color: '#888888' }}>Algorithm: </span>
+              {ALGORITHM_LABELS[algorithm]}
+            </span>
+          </div>
         </div>
 
         <div className="stats-scroll-body">

@@ -53,7 +53,7 @@ function MazeKeyHover() {
 
 interface MazeBuilderProps {
   onBack: () => void;
-  onSendMaze: (maze: number[][], start: [number, number], end: [number, number]) => void;
+  onSendMaze: (maze: number[][], start: [number, number], end: [number, number], algorithm: 'old' | 'aco') => void;
   wsConnected: boolean;
   exportType: 'csv' | 'json';
   setExportType: React.Dispatch<React.SetStateAction<'csv' | 'json'>>;
@@ -102,6 +102,7 @@ function MazeBuilder({
   error,
   setError
 }: MazeBuilderProps) {
+  const [algorithm, setAlgorithm] = useState<'old' | 'aco'>('aco');
 
   // Export maze as CSV or JSON
   const handleExportMaze = () => {
@@ -245,7 +246,7 @@ function MazeBuilder({
       return;
     }
     if (maze) {
-      onSendMaze(maze, startPt, endPt);
+      onSendMaze(maze, startPt, endPt, algorithm);
       setError('');
     }
   };
@@ -307,6 +308,23 @@ function MazeBuilder({
                     <input className="start-end-input" placeholder="0,0" value={start} onChange={e => setStart(e.target.value)} />
                     <label className="end-label">End (B)</label>
                     <input className="start-end-input" placeholder="9,9" value={end} onChange={e => setEnd(e.target.value)} />
+                  </div>
+                </div>
+                <div style={{ marginTop: '1.5em', textAlign: 'left' }}>
+                  <b>3. Select Algorithm</b>
+                  <div className="data-tabs" style={{ marginTop: '0.5em' }}>
+                    <button
+                      className={`tab${algorithm === 'old' ? ' active' : ''}`}
+                      onClick={() => setAlgorithm('old')}
+                    >
+                      Swarm
+                    </button>
+                    <button
+                      className={`tab${algorithm === 'aco' ? ' active' : ''}`}
+                      onClick={() => setAlgorithm('aco')}
+                    >
+                      ACO Swarm
+                    </button>
                   </div>
                 </div>
                 <div className="generate-btn-container">

@@ -28,6 +28,7 @@ function App() {
   const [startPt, setStartPt] = useState<[number, number]>([0, 0]);
   const [endPt, setEndPt] = useState<[number, number]>([0, 0]);
   const [error, setError] = useState('');
+  const [selectedAlgorithm, setSelectedAlgorithm] = useState<'old' | 'aco'>('aco');
 
 
   const ws = useRef<WebSocket | null>(null);
@@ -52,7 +53,7 @@ function App() {
   
 
   // Function to send maze via WebSocket
-  const handleSendMaze = (maze: number[][], start: [number, number], end: [number, number]) => {
+  const handleSendMaze = (maze: number[][], start: [number, number], end: [number, number], algorithm: 'old' | 'aco') => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
       console.error("WebSocket is not connected.");
       return;
@@ -61,12 +62,13 @@ function App() {
     const payload = {
         maze,
         start,
-        end
+        end,
+        algorithm
     };
 
     ws.current.send(JSON.stringify(payload));
     console.log("Maze sent via WebSocket");
-
+    setSelectedAlgorithm(algorithm);
     setShowActivity(true);
     setShowBuilder(false);
   };
@@ -126,6 +128,7 @@ function App() {
           maze={maze}
           startPt={startPt}
           endPt={endPt}
+          algorithm={selectedAlgorithm}
         />
       </>
     );
