@@ -126,8 +126,8 @@ function MazeBuilder({
     let dataStr = '';
     let filename = '';
     if (exportType === 'csv') {
-      // CSV: start, end, then maze rows
-      dataStr = `${startPt[0]},${startPt[1]}\n${endPt[0]},${endPt[1]}\n` + maze.map(row => row.join(',')).join('\n');
+      // CSV: start, end (as x,y = col,row), then maze rows
+      dataStr = `${startPt[1]},${startPt[0]}\n${endPt[1]},${endPt[0]}\n` + maze.map(row => row.join(',')).join('\n');
       filename = 'maze.csv';
     } else {
       // JSON: {start, end, maze}
@@ -198,8 +198,9 @@ function MazeBuilder({
       setError('Invalid start or end points. Use format like 0,0');
       return;
     }
-    const startPtTemp: [number, number] = [s[0], s[1]];
-    const endPtTemp: [number, number] = [e[0], e[1]];
+    // Input convention is (x, y) = (col, row) to match the on-grid hover tooltip.
+    const startPtTemp: [number, number] = [s[1], s[0]];
+    const endPtTemp: [number, number] = [e[1], e[0]];
     const rows = m.length;
     const cols = m[0].length;
     if (startPtTemp[0] < 0 || startPtTemp[0] >= rows || startPtTemp[1] < 0 || startPtTemp[1] >= cols) {
