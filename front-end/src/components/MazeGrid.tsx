@@ -61,7 +61,7 @@ const MazeGrid: React.FC<MazeGridProps> = ({
             whiteSpace: 'nowrap'
           }}
         >
-          ({hoveredCell[1]},{hoveredCell[0]})
+          ({hoveredCell[0]},{hoveredCell[1]})
         </div>
       )}
       <style>{`

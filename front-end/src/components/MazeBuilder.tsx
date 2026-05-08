@@ -200,8 +200,8 @@ function MazeBuilder({
       return;
     }
     // Input convention is (x, y) = (col, row) to match the on-grid hover tooltip.
-    const startPtTemp: [number, number] = [s[1], s[0]];
-    const endPtTemp: [number, number] = [e[1], e[0]];
+    const startPtTemp: [number, number] = [s[0], s[1]];
+    const endPtTemp: [number, number] = [e[0], e[1]];
     const rows = m.length;
     const cols = m[0].length;
     if (startPtTemp[0] < 0 || startPtTemp[0] >= rows || startPtTemp[1] < 0 || startPtTemp[1] >= cols) {
