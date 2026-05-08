@@ -34,7 +34,7 @@ function App() {
   const wsUrl = import.meta.env.VITE_WEBSOCKET_URL;
 
   useEffect(() => {
-    ws.current = new WebSocket(wsUrl);
+    ws.current = new WebSocket(wsUrl, "chat");
     
     ws.current.onopen = () => console.log("WebSocket connected");
     ws.current.onclose = () => console.log("WebSocket disconnected");
