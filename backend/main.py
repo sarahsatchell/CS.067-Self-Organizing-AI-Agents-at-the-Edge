@@ -4,6 +4,7 @@ import os
 from aiohttp import web
 import aiohttp
 import NodeClass
+import OldNodeClass
 from spawner import spawn_agents
 
 connected_clients = set()
@@ -27,13 +28,15 @@ async def websocket_handler(request):
                 maze = data.get("maze")
                 start = data.get("start")
                 end = data.get("end")
+                algorithm = data.get("algorithm", "aco")  # default to ACO if not specified
 
                 await ws.send_str(json.dumps({
                     "type": "ack",
+                    "algorithm": algorithm,
                     "status": "Maze received. Starting swarm simulation..."
                 }))
 
-                asyncio.create_task(run_live_simulation(maze, start, end, ws))
+                asyncio.create_task(run_live_simulation(maze, start, end, ws, algorithm))
 
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 print(f"WebSocket error: {ws.exception()}")
@@ -83,22 +86,34 @@ async def broadcast(message):
 # -------------------------
 # Simulation logic
 # -------------------------
-async def run_live_simulation(maze, start, end, ws):
-    agents = spawn_agents(maze, tuple(start))
+async def run_live_simulation(maze, start, end, ws, algorithm: str = "aco"):
+    if algorithm == "aco":
+        # Trigger optimised ACO algorithm (NodeClass.Node)
+        agents = spawn_agents(maze, tuple(start), node_class=NodeClass.Node)
+    else:
+        # Trigger original frontier-based algorithm (OldNodeClass.OldNode)
+        agents = spawn_agents(maze, tuple(start), node_class=OldNodeClass.OldNode)
 
     listener_tasks = [asyncio.create_task(agent.web_listen()) for agent in agents]
 
     for agent in agents:
         await ws.send_str(json.dumps({
             "type": "agent_registered",
+            "algorithm": algorithm,
             "agent_name": agent.name,
             "agent_id": agent.agent_id,
-            "position": list(agent.current_position),
+            "position": list(agent.aco_current_position) if algorithm == "aco" else list(agent.current_position),
             "status": "exploring"
         }))
 
     tick = 0
     goal_reached = False
+
+    # Helper: normalise position attribute across both agent types
+    def get_position(agent):
+        if algorithm == "aco":
+            return agent.aco_current_position
+        return agent.current_position
 
     while not goal_reached and tick < 500:
         tick += 1
@@ -106,35 +121,52 @@ async def run_live_simulation(maze, start, end, ws):
 
         for agent in agents:
             agent.tick(maze)
+            pos = get_position(agent)
 
-            if agent.current_position == tuple(end):
+            if pos == tuple(end):
                 goal_reached = True
-                if not agent.reached_goal:
-                    agent.reached_goal = True
-                    agent.goal_tick = tick
+                reached_attr = "aco_reached_goal" if algorithm == "aco" else "reached_goal"
+                goal_tick_attr = "aco_goal_tick" if algorithm == "aco" else "goal_tick"
+
+                if not getattr(agent, reached_attr):
+                    setattr(agent, reached_attr, True)
+                    setattr(agent, goal_tick_attr, tick)
+
                 await ws.send_str(json.dumps({
                     "type": "agent_goal_reached",
+                    "algorithm": algorithm,
                     "agent_name": agent.name,
                     "agent_id": agent.agent_id,
-                    "position": list(agent.current_position),
+                    "position": list(pos),
                     "tick": tick
                 }))
 
+            # Normalise map/frontier attributes across both agent types
+            if algorithm == "aco":
+                local_map = agent.aco_local_map
+                target_frontier = agent.aco_target_frontier
+            else:
+                local_map = agent.local_map
+                target_frontier = agent.target_frontier
+
             agent_data.append({
                 "id": agent.agent_id,
-                "position": agent.current_position,
-                "target_frontier": agent.target_frontier,
-                "cells_discovered": len(agent.local_map)
+                "position": pos,
+                "target_frontier": target_frontier,
+                "cells_discovered": len(local_map)
             })
 
         explored = set()
         for agent in agents:
-            explored.update(agent.local_map.keys())
+            map_attr = "aco_local_map" if algorithm == "aco" else "local_map"
+            explored.update(getattr(agent, map_attr).keys())
+
         total_open = sum(1 for row in maze for cell in row if cell == 0)
         explored_pct = (len(explored) / total_open * 100) if total_open > 0 else 0
 
         await ws.send_str(json.dumps({
             "type": "tick_update",
+            "algorithm": algorithm,
             "tick": tick,
             "goal_reached": goal_reached,
             "explored_pct": round(explored_pct, 1),
@@ -147,7 +179,8 @@ async def run_live_simulation(maze, start, end, ws):
     # Final summary
     explored = set()
     for agent in agents:
-        explored.update(agent.local_map.keys())
+        map_attr = "aco_local_map" if algorithm == "aco" else "local_map"
+        explored.update(getattr(agent, map_attr).keys())
 
     total_open = sum(1 for row in maze for cell in row if cell == 0)
     explored_pct = (len(explored) / total_open * 100) if total_open > 0 else 0
@@ -159,6 +192,7 @@ async def run_live_simulation(maze, start, end, ws):
 
     await ws.send_str(json.dumps({
         "type": "simulation_complete",
+        "algorithm": algorithm,
         "goal_reached": goal_reached,
         "tick": tick,
         "explored_cells": len(explored),
@@ -169,7 +203,7 @@ async def run_live_simulation(maze, start, end, ws):
 
 
 # -------------------------
-# HTTP health check (HEAD is handled automatically by aiohttp for GET routes)
+# HTTP health check
 # -------------------------
 async def health_check(request):
     return web.Response(text="OK", status=200)
@@ -186,7 +220,7 @@ async def main():
 
     app = web.Application()
     app.router.add_get("/", health_check)
-    app.router.add_get("/ws", websocket_handler)
+    app.router.add_route("*", "/ws", websocket_handler)
 
     runner = web.AppRunner(app)
     await runner.setup()

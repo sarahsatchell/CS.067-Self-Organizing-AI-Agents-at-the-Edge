@@ -1,5 +1,5 @@
 """
-NodeClass.py: Agent implementation for Fixed-Size Swarm with Frontier-Based Exploration
+[OLD]NodeClass.py: Agent implementation for Fixed-Size Swarm with Frontier-Based Exploration
 
 Each agent:
 1. Maintains a local_map of visited nodes and edges

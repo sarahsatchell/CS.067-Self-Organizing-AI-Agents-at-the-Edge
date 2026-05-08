@@ -31,6 +31,23 @@ function parseMazeJSON(json: string): number[][] {
   }
 }
 
+const TRIAL_MAZE: number[][] = [
+  [0, 1, 0, 0, 0, 1, 0, 0, 0, 0],
+  [0, 1, 0, 1, 0, 1, 0, 1, 1, 0],
+  [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+  [1, 1, 0, 1, 1, 1, 0, 1, 0, 1],
+  [0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+  [0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  [0, 0, 0, 0, 0, 1, 0, 1, 0, 0],
+  [0, 1, 0, 1, 0, 1, 0, 0, 1, 0],
+  [0, 1, 0, 1, 0, 1, 0, 1, 1, 0],
+  [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+  [1, 1, 0, 1, 1, 1, 0, 1, 0, 1],
+  [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+];
+const TRIAL_START = '0,0';
+const TRIAL_END = '11,9';
+
 // Component for the hover trigger that shows the maze key popup
 function MazeKeyHover() {
   const [show, setShow] = useState(false);
@@ -110,8 +127,8 @@ function MazeBuilder({
     let dataStr = '';
     let filename = '';
     if (exportType === 'csv') {
-      // CSV: start, end, then maze rows
-      dataStr = `${startPt[0]},${startPt[1]}\n${endPt[0]},${endPt[1]}\n` + maze.map(row => row.join(',')).join('\n');
+      // CSV: start, end (as x,y = col,row), then maze rows
+      dataStr = `${startPt[1]},${startPt[0]}\n${endPt[1]},${endPt[0]}\n` + maze.map(row => row.join(',')).join('\n');
       filename = 'maze.csv';
     } else {
       // JSON: {start, end, maze}
@@ -182,8 +199,9 @@ function MazeBuilder({
       setError('Invalid start or end points. Use format like 0,0');
       return;
     }
-    const startPtTemp: [number, number] = [s[0], s[1]];
-    const endPtTemp: [number, number] = [e[0], e[1]];
+    // Input convention is (x, y) = (col, row) to match the on-grid hover tooltip.
+    const startPtTemp: [number, number] = [s[1], s[0]];
+    const endPtTemp: [number, number] = [e[1], e[0]];
     const rows = m.length;
     const cols = m[0].length;
     if (startPtTemp[0] < 0 || startPtTemp[0] >= rows || startPtTemp[1] < 0 || startPtTemp[1] >= cols) {
@@ -217,6 +235,18 @@ function MazeBuilder({
     setMaze(null);
     setStartPt([0, 0]);
     setEndPt([0, 0]);
+    setError('');
+  };
+
+  // Handler to load a hardcoded sample maze for quick test runs
+  const handleTrialMaze = () => {
+    if (inputType === 'csv') {
+      setCsv(TRIAL_MAZE.map(row => row.join(',')).join('\n'));
+    } else {
+      setJson(JSON.stringify(TRIAL_MAZE));
+    }
+    setStart(TRIAL_START);
+    setEnd(TRIAL_END);
     setError('');
   };
 
@@ -299,7 +329,8 @@ function MazeBuilder({
                   <span className="input-hint">
                     {inputType === 'csv' ? '0 = open path, 1 = wall' : 'JSON array of arrays, e.g. [[0,1,0],[1,0,1]]'}
                   </span>
-                  <Button variant="secondary" onClick={handleClear} style={{ fontSize: '0.85em', padding: '0.3em 0.8em', marginLeft: '1em' }}>Clear</Button>
+                  <Button variant="secondary" onClick={handleTrialMaze} style={{ fontSize: '0.85em', padding: '0.3em 0.8em', marginLeft: '1em', minWidth: '6.5em' }}>Demo</Button>
+                  <Button variant="secondary" onClick={handleClear} style={{ fontSize: '0.85em', padding: '0.3em 0.8em', marginLeft: '0.5em', minWidth: '6.5em' }}>Clear</Button>
                 </div>
                 <div style={{ marginTop: '1.5em', textAlign: 'left' }}>
                   <b>2. Set Start &amp; End Points</b>
