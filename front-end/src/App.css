@@ -506,7 +506,11 @@
 }
 
 .about-overview { animation-delay: 0.05s; }
-.about-team     { animation-delay: 0.12s; }
+.about-features { animation-delay: 0.10s; }
+.about-how      { animation-delay: 0.15s; }
+.about-tech     { animation-delay: 0.20s; }
+.about-team     { animation-delay: 0.25s; }
+.about-ack      { animation-delay: 0.30s; }
 
 .about-subtitle {
   display: flex;
@@ -538,76 +542,229 @@
   margin-bottom: 0;
 }
 
-.team-table-wrapper {
+/* Features grid */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
   width: 100%;
-  overflow-x: auto;
-  border-radius: 8px;
+}
+
+.feature-tile {
   background: #1a1a1a;
   border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 1.1rem 1rem;
+  text-align: left;
+  transition: border-color 0.2s ease, transform 0.2s ease;
 }
 
-.team-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.95rem;
+.feature-tile:hover {
+  border-color: #e86011;
+  transform: translateY(-2px);
 }
 
-.team-table thead {
+.feature-icon-wrap {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: rgba(232, 96, 17, 0.12);
+  color: #e86011;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  margin-bottom: 0.6rem;
+}
+
+.feature-title {
+  margin: 0 0 0.35rem 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.feature-body {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #c5c5c5;
+}
+
+/* How it works steps */
+.steps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  padding: 0.85rem 1rem;
   background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  transition: border-color 0.2s ease;
 }
 
-.team-table th {
+.step-item:hover {
+  border-color: #e86011;
+}
+
+.step-number {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: #e86011;
+  font-size: 1.1rem;
+  min-width: 2.2rem;
+  letter-spacing: 0.02em;
+}
+
+.step-text {
+  flex: 1;
   text-align: left;
-  font-weight: 600;
+}
+
+.step-title {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.step-body {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #c5c5c5;
+}
+
+/* Tech stack chips */
+.tech-chip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.tech-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.85rem;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 999px;
+  color: #e6e6e6;
+  font-size: 0.88rem;
+  font-weight: 500;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.tech-chip:hover {
+  border-color: #e86011;
+  color: #ffa566;
+}
+
+.tech-chip i {
+  color: #e86011;
+  font-size: 1rem;
+}
+
+/* Team grid */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.1rem;
+  width: 100%;
+}
+
+.team-card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.team-card:hover {
+  border-color: #e86011;
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(232, 96, 17, 0.15);
+}
+
+.team-photo {
+  width: 110px;
+  height: 110px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 3px solid #e86011;
+  background: #2a2a2a;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.team-card-name {
+  margin: 0 0 0.3rem 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.team-card-grad {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.7rem 0;
+  font-size: 0.82rem;
   color: #aaa;
-  padding: 0.7rem 1rem;
-  border-bottom: 2px solid #333;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 0.8rem;
+  font-style: italic;
 }
 
-.team-table td {
-  padding: 0.75rem 1rem;
-  color: #fff;
-  border-bottom: 1px solid #2a2a2a;
-  text-align: left;
-  transition: background 0.2s ease;
+.team-card-grad i {
+  color: #e86011;
 }
 
-.team-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.team-table tbody tr {
-  transition: background 0.2s ease;
-}
-
-.team-table tbody tr:hover {
-  background: rgba(232, 96, 17, 0.08);
-}
-
-.team-table tbody tr:hover td:first-child {
-  box-shadow: inset 3px 0 0 #e86011;
-}
-
-.team-name {
-  font-weight: 600;
-  color: #fff;
-}
-
-.team-email {
+.team-card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
   color: #e86011;
   text-decoration: none;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9rem;
+  font-size: 0.78rem;
   font-weight: 500;
-  transition: color 0.2s ease;
+  word-break: break-all;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 
-.team-email:hover {
+.team-card-link:hover {
+  background: rgba(232, 96, 17, 0.12);
   color: #ffa566;
-  text-decoration: underline;
+}
+
+.team-card-link i {
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.team-card-linkedin {
+  font-family: inherit;
+  font-size: 0.85rem;
 }
 
 .about-actions {
@@ -643,6 +800,14 @@
   }
   .about-title {
     font-size: 1.8rem;
+  }
+  .team-grid,
+  .features-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+  .team-photo {
+    width: 90px;
+    height: 90px;
   }
 }
 
