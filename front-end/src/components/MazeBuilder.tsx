@@ -31,6 +31,23 @@ function parseMazeJSON(json: string): number[][] {
   }
 }
 
+const TRIAL_MAZE: number[][] = [
+  [0, 1, 0, 0, 0, 1, 0, 0, 0, 0],
+  [0, 1, 0, 1, 0, 1, 0, 1, 1, 0],
+  [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+  [1, 1, 0, 1, 1, 1, 0, 1, 0, 1],
+  [0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+  [0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  [0, 0, 0, 0, 0, 1, 0, 1, 0, 0],
+  [0, 1, 0, 1, 0, 1, 0, 0, 1, 0],
+  [0, 1, 0, 1, 0, 1, 0, 1, 1, 0],
+  [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+  [1, 1, 0, 1, 1, 1, 0, 1, 0, 1],
+  [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+];
+const TRIAL_START = '0,0';
+const TRIAL_END = '11,9';
+
 // Component for the hover trigger that shows the maze key popup
 function MazeKeyHover() {
   const [show, setShow] = useState(false);
@@ -219,6 +236,18 @@ function MazeBuilder({
     setError('');
   };
 
+  // Handler to load a hardcoded sample maze for quick test runs
+  const handleTrialMaze = () => {
+    if (inputType === 'csv') {
+      setCsv(TRIAL_MAZE.map(row => row.join(',')).join('\n'));
+    } else {
+      setJson(JSON.stringify(TRIAL_MAZE));
+    }
+    setStart(TRIAL_START);
+    setEnd(TRIAL_END);
+    setError('');
+  };
+
   // Handler for importing maze data from a file
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -298,7 +327,8 @@ function MazeBuilder({
                   <span className="input-hint">
                     {inputType === 'csv' ? '0 = open path, 1 = wall' : 'JSON array of arrays, e.g. [[0,1,0],[1,0,1]]'}
                   </span>
-                  <Button variant="secondary" onClick={handleClear} style={{ fontSize: '0.85em', padding: '0.3em 0.8em', marginLeft: '1em' }}>Clear</Button>
+                  <Button variant="secondary" onClick={handleTrialMaze} style={{ fontSize: '0.85em', padding: '0.3em 0.8em', marginLeft: '1em', minWidth: '6.5em' }}>Demo</Button>
+                  <Button variant="secondary" onClick={handleClear} style={{ fontSize: '0.85em', padding: '0.3em 0.8em', marginLeft: '0.5em', minWidth: '6.5em' }}>Clear</Button>
                 </div>
                 <div style={{ marginTop: '1.5em', textAlign: 'left' }}>
                   <b>2. Set Start &amp; End Points</b>
